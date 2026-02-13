@@ -48,7 +48,8 @@ const bodyParserConfig = defineConfig({
      * Maximum limit of data to parse including all files
      * and fields
      */
-    limit: '500mb',
+    maxFields: 1000,
+    limit: '2gb',
     types: ['multipart/form-data'],
   },
 })

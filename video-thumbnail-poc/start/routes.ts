@@ -15,9 +15,9 @@ router.get('/', async () => {
     hello: 'world',
   }
 })
+router.group(() => {
+  router.post('/upload', [VideoController, 'uploadVideo'])
+  router.get('/videos', [VideoController, 'getVideos'])
+  router.get('/videos/:id/thumbnails', [VideoController, 'getThumbnails'])
 
-
-
-router.post('/api/v1/upload', [VideoController, 'uploadVideo'])
-router.get('/api/v1/videos', [VideoController, 'getVideos'])
-router.get('/api/v1/videos/:id/thumbnails', [VideoController, 'getThumbnails'])
+}).prefix('/api/v1')

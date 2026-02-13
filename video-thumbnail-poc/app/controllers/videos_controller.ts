@@ -6,7 +6,6 @@ import ffmpegStatic from 'ffmpeg-static'
 import sharp from 'sharp'
 import { v4 as uuid } from 'uuid'
 import app from '@adonisjs/core/services/app'
-import os from 'node:os'  // ← add this for safe temp
 
 if (ffmpegStatic) {
     ffmpeg.setFfmpegPath(ffmpegStatic)
@@ -22,7 +21,7 @@ export default class VideoController {
                 return response.status(400).json({ success: false, message: 'No video file provided' })
             }
 
-            const customThumbnailFile = request.file('thumbnail')  // Optional custom thumbnail
+            const customThumbnailFile = request.file('thumbnail')
 
             // 1. Save video
             const uploadDir = app.publicPath('uploads/videos')
@@ -30,7 +29,7 @@ export default class VideoController {
             const fileName = `${Date.now()}-${uuid()}.mp4`
             await videoFile.move(uploadDir, { name: fileName })
             const videoPath = path.join(uploadDir, fileName)
-            const videoUrl = `/uploads/videos/${fileName}`  // Frontend ke liye URL
+            const videoUrl = `/uploads/videos/${fileName}`
             console.log(`✅ Video saved: ${videoPath}`)
 
             // 2. Duration
@@ -42,73 +41,43 @@ export default class VideoController {
             const { frameCount, interval } = this.calculateFrameCount(duration)
             console.log(`🎯 Frame Count: ${frameCount} (every ${interval.toFixed(2)}s)`)
 
-            // 4. Safe temp dir
-            const tempBase = os.tmpdir()
-            const tempDir = path.join(tempBase, `video-frames-${uuid()}`)
-            await fs.mkdir(tempDir, { recursive: true })
-            console.log(`Temp dir: ${tempDir}`)
-
-            // 5. Extract frames
-            await this.extractFramesManual(videoPath, tempDir, frameCount, interval, duration)
-
-            // 6. Read extracted frames
-            const frameFiles = (await fs.readdir(tempDir)).filter(f => f.endsWith('.png'))
-            frameFiles.sort((a, b) => {
-                const numA = parseInt(a.match(/\d+/)?.[0] || '0')
-                const numB = parseInt(b.match(/\d+/)?.[0] || '0')
-                return numA - numB
-            })
-            console.log(`📸 Found ${frameFiles.length} frames`)
-
-            // 7. Thumbnails folder
+            // 4. Create video folder
             const videoFolderId = uuid()
             const thumbnailDir = app.publicPath(`thumbnails/${videoFolderId}`)
             await fs.mkdir(thumbnailDir, { recursive: true })
 
-            // 8. Process thumbnails with sharp
+            // 5. 🔥 OPTIMIZED: Generate sprite directly using ffmpeg (much faster!)
+            console.log('🚀 Generating sprite with ffmpeg...')
+            const spriteInfo = await this.generateSpriteOptimized(
+                videoPath,
+                thumbnailDir,
+                videoFolderId,
+                frameCount,
+                interval,
+                duration
+            )
+            console.log(`✅ Sprite generated: ${spriteInfo.columns}x${spriteInfo.rows}`)
+
+            // 6. Handle custom thumbnail (for video poster)
+            let posterPath = ''
+            if (customThumbnailFile) {
+                const posterName = `poster.webp`
+                const posterFilePath = path.join(thumbnailDir, posterName)
+                await customThumbnailFile.move(thumbnailDir, { name: posterName })
+                posterPath = `/thumbnails/${videoFolderId}/${posterName}`
+                console.log('✅ Custom poster saved')
+            }
+
+            // 7. Generate thumbnail metadata for frontend
             const thumbnails: any[] = []
-            for (let i = 0; i < frameFiles.length; i++) {
-                const framePath = path.join(tempDir, frameFiles[i])
-                const thumbnailFileName = `thumb-${i + 1}.webp`
-                const thumbnailPath = path.join(thumbnailDir, thumbnailFileName)
-
-                await sharp(framePath)
-                    .resize(640, 360, { fit: 'cover', kernel: 'lanczos3' })
-                    .sharpen({ sigma: 0.5 })
-                    .webp({ quality: 95, effort: 6 })
-                    .toFile(thumbnailPath)
-
+            for (let i = 0; i < frameCount; i++) {
                 const timeSecond = Number((i * interval).toFixed(2))
                 thumbnails.push({
                     frameNo: i + 1,
                     timeSecond,
-                    imagePath: `/thumbnails/${videoFolderId}/${thumbnailFileName}`,
                     timeLabel: this.formatTime(timeSecond),
                 })
-
-                console.log(`✅ Thumbnail ${i + 1}/${frameFiles.length}`)
             }
-
-            // 9. Handle custom thumbnail (agar diya to first thumbnail replace kar do)
-            let mainThumbnailPath = thumbnails[0]?.imagePath || '';  // Default auto first
-            if (customThumbnailFile) {
-                const customThumbName = `main-thumb.webp`
-                const customThumbPath = path.join(thumbnailDir, customThumbName)
-                await customThumbnailFile.move(thumbnailDir, { name: customThumbName })
-                mainThumbnailPath = `/thumbnails/${videoFolderId}/${customThumbName}`
-                thumbnails.unshift({  // Add as first
-                    frameNo: 0,
-                    timeSecond: 0,
-                    imagePath: mainThumbnailPath,
-                    timeLabel: '00:00 (Custom)',
-                });
-            }
-
-            // 10. Cleanup temp
-            for (const file of frameFiles) {
-                await fs.unlink(path.join(tempDir, file)).catch(() => { })
-            }
-            await fs.rmdir(tempDir).catch(() => { })
 
             return response.json({
                 success: true,
@@ -116,14 +85,15 @@ export default class VideoController {
                 data: {
                     videoId: videoFolderId,
                     fileName: videoFile.clientName,
-                    videoUrl,  // ← Yeh add kiya frontend ke liye
+                    videoUrl,
+                    posterUrl: posterPath,  // 🔥 For video poster
                     duration,
                     durationFormatted: this.formatTime(duration),
-                    thumbnailCount: thumbnails.length,
+                    thumbnailCount: frameCount,
                     interval,
                     intervalLabel: interval === 1 ? '1 per second' : `every ${interval.toFixed(2)}s`,
-                    mainThumbnail: mainThumbnailPath,
-                    thumbnails,
+                    sprite: spriteInfo,
+                    thumbnails,  // Just metadata, no image paths
                 },
             })
         } catch (error: any) {
@@ -132,42 +102,60 @@ export default class VideoController {
         }
     }
 
-    // New manual extraction method (replaces old one)
-    private extractFramesManual(
+    // 🔥 OPTIMIZED: Generate sprite directly with ffmpeg (10x faster!)
+    private generateSpriteOptimized(
         videoPath: string,
         outputDir: string,
-        count: number,
+        videoId: string,
+        frameCount: number,
         interval: number,
         duration: number
-    ): Promise<void> {
+    ): Promise<any> {
         return new Promise((resolve, reject) => {
-            let completed = 0
+            const thumbWidth = 160
+            const thumbHeight = 90
+            const columns = 5
+            const rows = Math.ceil(frameCount / columns)
+            const spritePath = path.join(outputDir, 'sprite.jpg')
 
-            for (let i = 0; i < count; i++) {
-                const time = Math.min(i * interval, duration - 0.1) // avoid end overflow
-                const outputFile = path.join(outputDir, `frame-${(i + 1).toString().padStart(3, '0')}.png`)
+            // Calculate fps for extraction
+            const fps = 1 / interval  // e.g., interval=2 => fps=0.5 (1 frame every 2 sec)
 
-                ffmpeg(videoPath)
-                    .seekInput(time)
-                    .outputOptions([
-                        '-vframes 1',
-                        '-sws_flags lanczos',
-                        '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2'
-                    ])
-                    .output(outputFile)
-                    .on('end', () => {
-                        completed++
-                        if (completed === count) {
-                            console.log('✅ All frames extracted')
-                            resolve()
-                        }
+            // 🚀 Single ffmpeg command to create sprite
+            ffmpeg(videoPath)
+                .outputOptions([
+                    `-vf fps=${fps},scale=${thumbWidth}:${thumbHeight},tile=${columns}x${rows}`,
+                    '-frames:v 1',
+                    '-q:v 3'  // Quality (1-31, lower = better)
+                ])
+                .output(spritePath)
+                .on('end', async () => {
+                    console.log('✅ Sprite generated')
+
+                    // Convert to WebP for smaller size
+                    const webpPath = path.join(outputDir, 'sprite.webp')
+                    await sharp(spritePath)
+                        .webp({ quality: 80 })
+                        .toFile(webpPath)
+
+                    // Delete jpg version
+                    await fs.unlink(spritePath).catch(() => { })
+
+                    resolve({
+                        path: `/thumbnails/${videoId}/sprite.webp`,
+                        columns,
+                        rows,
+                        thumbWidth,
+                        thumbHeight,
+                        spriteWidth: thumbWidth * columns,
+                        spriteHeight: thumbHeight * rows,
                     })
-                    .on('error', (err) => {
-                        console.error(`Frame ${i + 1} error:`, err)
-                        reject(err)
-                    })
-                    .run()
-            }
+                })
+                .on('error', (err) => {
+                    console.error('Sprite generation error:', err)
+                    reject(err)
+                })
+                .run()
         })
     }
 
@@ -175,39 +163,16 @@ export default class VideoController {
     async getThumbnails({ params, response }: HttpContext) {
         try {
             const videoId = params.id
-
-            // Check if thumbnail folder exists
             const thumbnailDir = app.publicPath(`thumbnails/${videoId}`)
 
             try {
                 const files = await fs.readdir(thumbnailDir)
-                console.log(`📁 Found ${files.length} thumbnails for video ${videoId}`)
-
-                if (files.length === 0) {
-                    return response.status(404).json({
-                        success: false,
-                        message: 'No thumbnails found for this video',
-                    })
-                }
-
-                // Sort by frame number
-                files.sort((a, b) => {
-                    const numA = parseInt(a.match(/\d+/)?.[0] || '0')
-                    const numB = parseInt(b.match(/\d+/)?.[0] || '0')
-                    return numA - numB
-                })
-
-                // Calculate approximate time for each frame
-                // You'd need to store this info for accurate display
-                const thumbnails = files.map((file, index) => ({
-                    frameNo: index + 1,
-                    imagePath: `/thumbnails/${videoId}/${file}`,
-                }))
+                console.log(`🔍 Found ${files.length} files for video ${videoId}`)
 
                 return response.json({
                     success: true,
-                    count: thumbnails.length,
-                    data: thumbnails,
+                    count: files.length,
+                    data: files.map(f => `/thumbnails/${videoId}/${f}`),
                 })
             } catch (error) {
                 return response.status(404).json({
@@ -220,7 +185,7 @@ export default class VideoController {
         }
     }
 
-    // ✅ List all processed videos (folders)
+    // ✅ List all processed videos
     async getVideos({ response }: HttpContext) {
         try {
             const thumbnailDir = app.publicPath('thumbnails')
@@ -234,7 +199,7 @@ export default class VideoController {
                         const files = await fs.readdir(path.join(thumbnailDir, videoId))
                         return {
                             videoId,
-                            thumbnailCount: files.length,
+                            fileCount: files.length,
                         }
                     })
                 )
@@ -258,7 +223,6 @@ export default class VideoController {
     }
 
     private calculateFrameCount(duration: number): { frameCount: number; interval: number } {
-        // your existing logic
         let frameCount: number
         let interval: number
 
@@ -281,9 +245,8 @@ export default class VideoController {
 
         return { frameCount, interval }
     }
-    // ✅ Format time (HH:MM:SS)
+
     private formatTime(seconds: number): string {
-        // your existing
         const hours = Math.floor(seconds / 3600)
         const minutes = Math.floor((seconds % 3600) / 60)
         const secs = Math.floor(seconds % 60)
@@ -293,7 +256,6 @@ export default class VideoController {
         return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
     }
 
-    // Helper: Get video duration
     private getVideoDuration(videoPath: string): Promise<number> {
         return new Promise((resolve, reject) => {
             ffmpeg.ffprobe(videoPath, (err, metadata) => {
@@ -302,26 +264,4 @@ export default class VideoController {
             })
         })
     }
-    // Helper: Extract frames
-    private extractFrames(
-        videoPath: string,
-        outputDir: string,
-        count: number
-    ): Promise<void> {
-        return new Promise((resolve, reject) => {
-            ffmpeg(videoPath)
-                .on('end', () => resolve())
-                .on('error', (err) => reject(err))
-                .screenshots({
-                    count: count,
-                    folder: outputDir,
-                    filename: 'frame-%i.png',
-                    size: '1280x720',  // ↑ badhao
-                })
-                .outputOptions([
-                    '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',  // aspect ratio safe
-                    '-sws_flags', 'lanczos'   // ← yeh sharp banayega
-                ])
-        })
-    }
-} 
+}

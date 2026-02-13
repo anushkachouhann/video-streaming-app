@@ -3,139 +3,415 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Video Thumbnail POC</title>
+  <title>Video Thumbnail POC - YouTube Style (Fixed Hover)</title>
   <style>
     body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #f9f9f9; }
     h1 { text-align: center; color: #333; }
     .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-    #preview { margin: 20px 0; text-align: center; position: relative; }
-    video { max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 6px; }
-    input[type="file"] { margin: 15px 0; }
-    button { background: #4CAF50; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
+    
+    /* Video Container */
+    #preview { 
+      margin: 20px 0; 
+      position: relative; 
+    }
+    
+    /* Video Element */
+    video { 
+      width: 100%; 
+      height: auto; 
+      border: 1px solid #ddd; 
+      border-radius: 6px; 
+      display: block;
+      background: #000;
+    }
+    
+    /* 🔥 CRITICAL: Hover Detection Area (over progress bar) */
+    #hover-detector {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 50px;  /* Covers the controls area */
+      z-index: 98;  /* Above video, below preview */
+      cursor: pointer;
+      /* background: rgba(255,0,0,0.1); */  /* Uncomment to see the area */
+    }
+    
+    /* 🔥 Hover Preview (YouTube style) */
+    #hover-preview { 
+      position: absolute; 
+      bottom: 60px;  /* Above progress bar */
+      left: 0; 
+      width: 160px; 
+      height: 90px; 
+      background-color: #000;
+      border: 2px solid #fff;
+      border-radius: 4px;
+      display: none; 
+      z-index: 100; 
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      pointer-events: none;
+      background-size: cover;
+      background-repeat: no-repeat;
+    }
+    
+    /* 🔥 Pause Preview (Center overlay) */
+    #pause-preview {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 200px;
+      height: 112px;
+      background-color: #000;
+      border: 3px solid #fff;
+      border-radius: 6px;
+      display: none;
+      z-index: 99;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+      background-size: cover;
+      background-repeat: no-repeat;
+    }
+    
+    /* Time Label on Hover Preview */
+    #hover-time {
+      position: absolute;
+      bottom: -25px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.8);
+      color: white;
+      padding: 3px 8px;
+      border-radius: 3px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    
+    .file-input-group {
+      margin: 15px 0;
+      padding: 15px;
+      background: #f5f5f5;
+      border-radius: 6px;
+    }
+    
+    .file-input-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: bold;
+      color: #555;
+    }
+    
+    input[type="file"] { 
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: white;
+    }
+    
+    button { 
+      background: #4CAF50; 
+      color: white; 
+      padding: 12px 24px; 
+      border: none; 
+      border-radius: 6px; 
+      cursor: pointer; 
+      font-size: 16px;
+      width: 100%;
+      margin-top: 10px;
+    }
     button:hover { background: #45a049; }
     button:disabled { background: #ccc; cursor: not-allowed; }
-    #status { margin: 15px 0; font-weight: bold; color: #555; }
-    #thumbnails { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 15px; margin-top: 30px; }
-    .thumb-card { background: #fff; border: 1px solid #eee; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 5px rgba(0,0,0,0.1); }
-    .thumb-card img { width: 100%; height: auto; display: block; }
-    .thumb-info { padding: 8px; text-align: center; font-size: 14px; }
-    #hover-preview { position: absolute; bottom: 60px; left: 0; width: 200px; height: 112px; background: #fff; border: 1px solid #ddd; display: none; z-index: 10; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }  /* Hover thumbnail - progress bar ke upar */
+    
+    #status { 
+      margin: 15px 0; 
+      padding: 12px;
+      font-weight: bold; 
+      border-radius: 6px;
+      background: #f0f0f0;
+      text-align: center;
+    }
+    
+    .info-box {
+      margin-top: 20px;
+      padding: 15px;
+      background: #e8f5e9;
+      border-left: 4px solid #4CAF50;
+      border-radius: 4px;
+    }
+    
+    .info-box h3 {
+      margin: 0 0 10px 0;
+      color: #2e7d32;
+    }
+    
+    .info-item {
+      padding: 5px 0;
+      color: #555;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Video Upload + Thumbnails POC</h1>
-    <input type="file" id="videoInput" accept="video/*" />
-    <input type="file" id="thumbnailInput" accept="image/*" /> <!-- Optional custom thumbnail -->
-    <p>Custom thumbnail upload karo (optional), warna auto-generate hoga.</p>
-    <div id="preview"></div>
-    <button id="uploadBtn" disabled>Upload Video & Generate Thumbnails</button>
+    <h1>🎥 YouTube-Style Video Preview (Fixed Hover)</h1>
+    
+    <div class="file-input-group">
+      <label>📹 Select Video *</label>
+      <input type="file" id="videoInput" accept="video/*" />
+    </div>
+    
+    <div class="file-input-group">
+      <label>🖼️ Custom Poster/Thumbnail (Optional)</label>
+      <input type="file" id="thumbnailInput" accept="image/*" />
+      <small style="color: #666; display: block; margin-top: 5px;">
+        This will show before video plays (like YouTube thumbnail)
+      </small>
+    </div>
+    
+    <div id="preview">
+      <!-- Video will be added here -->
+      
+      <!-- 🔥 Hover Detection Area (transparent overlay over controls) -->
+      <div id="hover-detector"></div>
+      
+      <!-- 🔥 Hover Preview (shows on progress bar hover) -->
+      <div id="hover-preview">
+        <div id="hover-time"></div>
+      </div>
+      
+      <!-- 🔥 Pause Preview (shows on video pause) -->
+      <div id="pause-preview"></div>
+    </div>
+    
+    <button id="uploadBtn" disabled>Upload & Process Video</button>
     <div id="status"></div>
-    <div id="thumbnails"></div>
+    
+    <div id="info" class="info-box" style="display: none;">
+      <h3>📊 Video Info</h3>
+      <div class="info-item"><strong>Duration:</strong> <span id="info-duration"></span></div>
+      <div class="info-item"><strong>Thumbnails:</strong> <span id="info-count"></span></div>
+      <div class="info-item"><strong>Interval:</strong> <span id="info-interval"></span></div>
+      <div class="info-item"><strong>Sprite Size:</strong> <span id="info-sprite"></span></div>
+    </div>
   </div>
+
   <script>
     const videoInput = document.getElementById('videoInput');
     const thumbnailInput = document.getElementById('thumbnailInput');
     const uploadBtn = document.getElementById('uploadBtn');
     const previewDiv = document.getElementById('preview');
     const status = document.getElementById('status');
-    const thumbnailsDiv = document.getElementById('thumbnails');
+    const hoverDetector = document.getElementById('hover-detector');
+    const hoverPreview = document.getElementById('hover-preview');
+    const pausePreview = document.getElementById('pause-preview');
+    const hoverTime = document.getElementById('hover-time');
+    const infoBox = document.getElementById('info');
+    
     let selectedVideo = null;
     let selectedThumbnail = null;
     let videoEl = null;
-    let thumbnailsData = [];
+    let spriteData = null;
     let videoDuration = 0;
+    let interval = 0;
 
-    // Local preview
+    // Local video preview
     videoInput.addEventListener('change', (e) => {
       selectedVideo = e.target.files[0];
       if (!selectedVideo) return;
-      previewDiv.innerHTML = '';
-      thumbnailsDiv.innerHTML = '';
+      
+      // Reset
+      const existingVideo = document.getElementById('mainVideo');
+      if (existingVideo) {
+        existingVideo.remove();
+      }
       status.textContent = '';
+      infoBox.style.display = 'none';
+      hoverDetector.style.display = 'none';
+      
       if (!selectedVideo.type.startsWith('video/')) {
-        status.textContent = 'Video file select karo';
+        status.textContent = '❌ Please select a video file';
+        status.style.background = '#ffebee';
         uploadBtn.disabled = true;
         return;
       }
+      
+      // Create video preview
       const url = URL.createObjectURL(selectedVideo);
       videoEl = document.createElement('video');
       videoEl.controls = true;
       videoEl.src = url;
-      videoEl.style.maxHeight = '400px';
-      previewDiv.appendChild(videoEl);
+      videoEl.id = 'mainVideo';
+      previewDiv.insertBefore(videoEl, previewDiv.firstChild);
+      
       uploadBtn.disabled = false;
-      status.textContent = `Selected: ${selectedVideo.name} (${(selectedVideo.size / 1024 / 1024).toFixed(2)} MB)`;
+      status.textContent = `✅ Selected: ${selectedVideo.name} (${(selectedVideo.size / 1024 / 1024).toFixed(2)} MB)`;
+      status.style.background = '#e8f5e9';
     });
 
     thumbnailInput.addEventListener('change', (e) => {
       selectedThumbnail = e.target.files[0];
+      if (selectedThumbnail) {
+        status.textContent = `✅ Video + Custom poster selected`;
+      }
     });
 
-    // Upload
+    // Upload and process
     uploadBtn.addEventListener('click', async () => {
       if (!selectedVideo) return;
+      
       uploadBtn.disabled = true;
-      status.textContent = 'Uploading and processing...';
+      status.textContent = '⏳ Uploading and processing... (this may take a moment)';
+      status.style.background = '#fff3e0';
+      
       const formData = new FormData();
       formData.append('video', selectedVideo);
       if (selectedThumbnail) formData.append('thumbnail', selectedThumbnail);
+      
+      const startTime = Date.now();
+      
       try {
         const res = await fetch('/api/v1/upload', { method: 'POST', body: formData });
         const data = await res.json();
-        if (!data.success) throw new Error(data.message || 'Failed');
-        status.textContent = `Success! ${data.data.thumbnailCount} thumbnails generated`;
-        thumbnailsData = data.data.thumbnails;
+        
+        if (!data.success) throw new Error(data.message || 'Upload failed');
+        
+        const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
+        status.textContent = `✅ Success! Processed in ${processingTime}s`;
+        status.style.background = '#e8f5e9';
+        
+        // Store sprite data
+        spriteData = data.data.sprite;
         videoDuration = data.data.duration;
-        renderThumbnails(thumbnailsData);
-
-        // Update video to uploaded server path (ab play karne pe server video chalega)
+        interval = data.data.interval;
+        
+        console.log('Sprite Info:', spriteData);
+        
+        // Update video source
         videoEl.src = data.data.videoUrl;
-        videoEl.load();  // Reload video
-
-        // Add hover preview img
-        const hoverPreview = document.createElement('img');
-        hoverPreview.id = 'hover-preview';
-        previewDiv.appendChild(hoverPreview);
-
-        // Hover logic (video element pe approx - real YouTube mein custom bar hota hai)
-        videoEl.addEventListener('loadedmetadata', () => {
-          videoEl.addEventListener('mousemove', (e) => {
-            const rect = videoEl.getBoundingClientRect();
-            const pos = (e.clientX - rect.left) / rect.width;  // 0 to 1
-            const time = pos * videoDuration;  // Hover time
-            const closestThumb = thumbnailsData.reduce((prev, curr) => {
-              return (Math.abs(curr.timeSecond - time) < Math.abs(prev.timeSecond - time) ? curr : prev);
-            }, thumbnailsData[0]);
-            if (closestThumb) {
-              hoverPreview.src = closestThumb.imagePath;
-              hoverPreview.style.display = 'block';
-              hoverPreview.style.left = `${e.clientX - rect.left - 100}px`;  // Center under mouse
-            }
-          });
-          videoEl.addEventListener('mouseleave', () => { hoverPreview.style.display = 'none'; });
-        });
+        
+        // 🔥 Set poster if custom thumbnail was uploaded
+        if (data.data.posterUrl) {
+          videoEl.poster = data.data.posterUrl;
+          console.log('✅ Poster set:', data.data.posterUrl);
+        }
+        
+        videoEl.load();
+        
+        // Show info
+        document.getElementById('info-duration').textContent = data.data.durationFormatted;
+        document.getElementById('info-count').textContent = data.data.thumbnailCount;
+        document.getElementById('info-interval').textContent = data.data.intervalLabel;
+        document.getElementById('info-sprite').textContent = `${spriteData.spriteWidth}×${spriteData.spriteHeight}px`;
+        infoBox.style.display = 'block';
+        
+        // 🔥 Show hover detector
+        hoverDetector.style.display = 'block';
+        
+        // 🔥 Setup YouTube-style preview
+        setupVideoPreview();
+        
       } catch (err) {
-        status.textContent = 'Error: ' + err.message;
+        status.textContent = '❌ Error: ' + err.message;
+        status.style.background = '#ffebee';
       } finally {
         uploadBtn.disabled = false;
       }
     });
 
-    function renderThumbnails(thumbs) {
-      thumbs.forEach(thumb => {
-        const card = document.createElement('div');
-        card.className = 'thumb-card';
-        const img = document.createElement('img');
-        img.src = thumb.imagePath;
-        img.alt = `Thumbnail at ${thumb.timeLabel}`;
-        const info = document.createElement('div');
-        info.className = 'thumb-info';
-        info.textContent = `${thumb.timeLabel} (${thumb.frameNo})`;
-        card.appendChild(img);
-        card.appendChild(info);
-        thumbnailsDiv.appendChild(card);
+    // 🔥 Setup YouTube-style preview functionality
+    function setupVideoPreview() {
+      if (!spriteData || !videoEl) return;
+      
+      // Set sprite as background for both preview elements
+      const spriteUrl = spriteData.path;
+      const spriteWidth = spriteData.spriteWidth;
+      const spriteHeight = spriteData.spriteHeight;
+      
+      hoverPreview.style.backgroundImage = `url('${spriteUrl}')`;
+      hoverPreview.style.backgroundSize = `${spriteWidth}px ${spriteHeight}px`;
+      
+      pausePreview.style.backgroundImage = `url('${spriteUrl}')`;
+      pausePreview.style.backgroundSize = `${spriteWidth}px ${spriteHeight}px`;
+      
+      // 🎯 HOVER PREVIEW (on hover detector - progress bar area)
+      hoverDetector.addEventListener('mousemove', (e) => {
+        if (!videoEl.duration || videoDuration === 0) return;
+        
+        const rect = videoEl.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const percent = mouseX / rect.width;
+        const hoverTimeInSeconds = Math.max(0, Math.min(percent * videoDuration, videoDuration));
+        
+        // Calculate which thumbnail to show
+        const frameIndex = Math.floor(hoverTimeInSeconds / interval);
+        const column = frameIndex % spriteData.columns;
+        const row = Math.floor(frameIndex / spriteData.columns);
+        
+        // Position the background
+        const bgX = column * spriteData.thumbWidth;
+        const bgY = row * spriteData.thumbHeight;
+        
+        hoverPreview.style.backgroundPosition = `-${bgX}px -${bgY}px`;
+        hoverPreview.style.left = `${Math.max(0, Math.min(mouseX - 80, rect.width - 160))}px`;
+        hoverPreview.style.display = 'block';
+        
+        // Show time label
+        hoverTime.textContent = formatTime(hoverTimeInSeconds);
       });
+      
+      hoverDetector.addEventListener('mouseleave', () => {
+        hoverPreview.style.display = 'none';
+      });
+      
+      // Also allow seeking on click
+      hoverDetector.addEventListener('click', (e) => {
+        if (!videoEl.duration) return;
+        
+        const rect = videoEl.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const percent = mouseX / rect.width;
+        const seekTime = percent * videoDuration;
+        
+        videoEl.currentTime = seekTime;
+        if (videoEl.paused) {
+          videoEl.play();
+        }
+      });
+      
+      // 🎯 PAUSE PREVIEW (center overlay)
+      videoEl.addEventListener('pause', () => {
+        const currentTime = videoEl.currentTime;
+        const frameIndex = Math.floor(currentTime / interval);
+        const column = frameIndex % spriteData.columns;
+        const row = Math.floor(frameIndex / spriteData.columns);
+        
+        const bgX = column * spriteData.thumbWidth;
+        const bgY = row * spriteData.thumbHeight;
+        
+        // pausePreview.style.backgroundPosition = `-${bgX}px -${bgY}px`;
+        // pausePreview.style.display = 'block';
+      });
+      
+      videoEl.addEventListener('play', () => {
+        pausePreview.style.display = 'none';
+      });
+      
+      // Also hide on seeking
+      videoEl.addEventListener('seeking', () => {
+        pausePreview.style.display = 'none';
+      });
+    }
+
+    // Format seconds to MM:SS or HH:MM:SS
+    function formatTime(seconds) {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = Math.floor(seconds % 60);
+      
+      if (h > 0) {
+        return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      }
+      return `${m}:${s.toString().padStart(2, '0')}`;
     }
   </script>
 </body>
