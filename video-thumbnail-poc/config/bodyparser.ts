@@ -40,6 +40,7 @@ const bodyParserConfig = defineConfig({
      * operating system
      */
     autoProcess: true,
+    fieldsLimit: '10mb',
     convertEmptyStringsToNull: true,
     processManually: [],
 
@@ -47,7 +48,7 @@ const bodyParserConfig = defineConfig({
      * Maximum limit of data to parse including all files
      * and fields
      */
-    limit: '20mb',
+    limit: '500mb',
     types: ['multipart/form-data'],
   },
 })
