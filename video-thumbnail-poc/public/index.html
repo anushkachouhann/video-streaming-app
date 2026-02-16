@@ -1,142 +1,136 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Video Thumbnail POC</title>
-  <style>
-    body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #f9f9f9; }
-    h1 { text-align: center; color: #333; }
-    .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-    #preview { margin: 20px 0; text-align: center; position: relative; }
-    video { max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 6px; }
-    input[type="file"] { margin: 15px 0; }
-    button { background: #4CAF50; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
-    button:hover { background: #45a049; }
-    button:disabled { background: #ccc; cursor: not-allowed; }
-    #status { margin: 15px 0; font-weight: bold; color: #555; }
-    #thumbnails { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 15px; margin-top: 30px; }
-    .thumb-card { background: #fff; border: 1px solid #eee; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 5px rgba(0,0,0,0.1); }
-    .thumb-card img { width: 100%; height: auto; display: block; }
-    .thumb-info { padding: 8px; text-align: center; font-size: 14px; }
-    #hover-preview { position: absolute; bottom: 60px; left: 0; width: 200px; height: 112px; background: #fff; border: 1px solid #ddd; display: none; z-index: 10; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }  /* Hover thumbnail - progress bar ke upar */
-  </style>
+  <title>Live Streaming Demo</title>
 </head>
 <body>
-  <div class="container">
-    <h1>Video Upload + Thumbnails POC</h1>
-    <input type="file" id="videoInput" accept="video/*" />
-    <input type="file" id="thumbnailInput" accept="image/*" /> <!-- Optional custom thumbnail -->
-    <p>Custom thumbnail upload karo (optional), warna auto-generate hoga.</p>
-    <div id="preview"></div>
-    <button id="uploadBtn" disabled>Upload Video & Generate Thumbnails</button>
-    <div id="status"></div>
-    <div id="thumbnails"></div>
-  </div>
-  <script>
-    const videoInput = document.getElementById('videoInput');
-    const thumbnailInput = document.getElementById('thumbnailInput');
-    const uploadBtn = document.getElementById('uploadBtn');
-    const previewDiv = document.getElementById('preview');
-    const status = document.getElementById('status');
-    const thumbnailsDiv = document.getElementById('thumbnails');
-    let selectedVideo = null;
-    let selectedThumbnail = null;
-    let videoEl = null;
-    let thumbnailsData = [];
-    let videoDuration = 0;
 
-    // Local preview
-    videoInput.addEventListener('change', (e) => {
-      selectedVideo = e.target.files[0];
-      if (!selectedVideo) return;
-      previewDiv.innerHTML = '';
-      thumbnailsDiv.innerHTML = '';
-      status.textContent = '';
-      if (!selectedVideo.type.startsWith('video/')) {
-        status.textContent = 'Video file select karo';
-        uploadBtn.disabled = true;
-        return;
-      }
-      const url = URL.createObjectURL(selectedVideo);
-      videoEl = document.createElement('video');
-      videoEl.controls = true;
-      videoEl.src = url;
-      videoEl.style.maxHeight = '400px';
-      previewDiv.appendChild(videoEl);
-      uploadBtn.disabled = false;
-      status.textContent = `Selected: ${selectedVideo.name} (${(selectedVideo.size / 1024 / 1024).toFixed(2)} MB)`;
-    });
+<h2>Instagram Live Demo</h2>
 
-    thumbnailInput.addEventListener('change', (e) => {
-      selectedThumbnail = e.target.files[0];
-    });
+<button onclick="startLive()">Go Live</button>
+<button onclick="joinLive()">Join Live</button>
 
-    // Upload
-    uploadBtn.addEventListener('click', async () => {
-      if (!selectedVideo) return;
-      uploadBtn.disabled = true;
-      status.textContent = 'Uploading and processing...';
-      const formData = new FormData();
-      formData.append('video', selectedVideo);
-      if (selectedThumbnail) formData.append('thumbnail', selectedThumbnail);
-      try {
-        const res = await fetch('/api/v1/upload', { method: 'POST', body: formData });
-        const data = await res.json();
-        if (!data.success) throw new Error(data.message || 'Failed');
-        status.textContent = `Success! ${data.data.thumbnailCount} thumbnails generated`;
-        thumbnailsData = data.data.thumbnails;
-        videoDuration = data.data.duration;
-        renderThumbnails(thumbnailsData);
+<p id="status">Not Live</p>
+<p>Viewers: <span id="viewers">0</span></p>
 
-        // Update video to uploaded server path (ab play karne pe server video chalega)
-        videoEl.src = data.data.videoUrl;
-        videoEl.load();  // Reload video
+<h3>Broadcaster Preview</h3>
+<video id="localVideo" autoplay muted playsinline width="400"></video>
 
-        // Add hover preview img
-        const hoverPreview = document.createElement('img');
-        hoverPreview.id = 'hover-preview';
-        previewDiv.appendChild(hoverPreview);
+<h3>Viewer Player</h3>
+<video id="remoteVideo" autoplay playsinline width="400"></video>
 
-        // Hover logic (video element pe approx - real YouTube mein custom bar hota hai)
-        videoEl.addEventListener('loadedmetadata', () => {
-          videoEl.addEventListener('mousemove', (e) => {
-            const rect = videoEl.getBoundingClientRect();
-            const pos = (e.clientX - rect.left) / rect.width;  // 0 to 1
-            const time = pos * videoDuration;  // Hover time
-            const closestThumb = thumbnailsData.reduce((prev, curr) => {
-              return (Math.abs(curr.timeSecond - time) < Math.abs(prev.timeSecond - time) ? curr : prev);
-            }, thumbnailsData[0]);
-            if (closestThumb) {
-              hoverPreview.src = closestThumb.imagePath;
-              hoverPreview.style.display = 'block';
-              hoverPreview.style.left = `${e.clientX - rect.left - 100}px`;  // Center under mouse
-            }
-          });
-          videoEl.addEventListener('mouseleave', () => { hoverPreview.style.display = 'none'; });
-        });
-      } catch (err) {
-        status.textContent = 'Error: ' + err.message;
-      } finally {
-        uploadBtn.disabled = false;
-      }
-    });
+<script src="/socket.io/socket.io.js"></script>
+<script>
 
-    function renderThumbnails(thumbs) {
-      thumbs.forEach(thumb => {
-        const card = document.createElement('div');
-        card.className = 'thumb-card';
-        const img = document.createElement('img');
-        img.src = thumb.imagePath;
-        img.alt = `Thumbnail at ${thumb.timeLabel}`;
-        const info = document.createElement('div');
-        info.className = 'thumb-info';
-        info.textContent = `${thumb.timeLabel} (${thumb.frameNo})`;
-        card.appendChild(img);
-        card.appendChild(info);
-        thumbnailsDiv.appendChild(card);
+const socket = io();
+let localStream;
+let peerConnections = {};
+let isBroadcaster = false;
+
+const localVideo = document.getElementById("localVideo");
+const remoteVideo = document.getElementById("remoteVideo");
+
+const status = document.getElementById("status");
+const viewers = document.getElementById("viewers");
+
+function createPeerConnection(targetId) {
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  });
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit("ice-candidate", {
+        target: targetId,
+        candidate: event.candidate
       });
     }
-  </script>
+  };
+
+  pc.ontrack = (event) => {
+    remoteVideo.srcObject = event.streams[0];
+  };
+
+  return pc;
+}
+
+// 🎥 Start Live
+async function startLive() {
+  isBroadcaster = true;
+
+  localStream = await navigator.mediaDevices.getUserMedia({
+    video: true,
+    audio: true
+  });
+
+  localVideo.srcObject = localStream;
+  socket.emit("start-live");
+}
+
+socket.on("new-viewer", async (viewerId) => {
+  const pc = createPeerConnection(viewerId);
+  peerConnections[viewerId] = pc;
+
+  localStream.getTracks().forEach(track => {
+    pc.addTrack(track, localStream);
+  });
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  socket.emit("offer", {
+    target: viewerId,
+    offer
+  });
+});
+
+// 👀 Join Live
+function joinLive() {
+  socket.emit("join-live");
+  socket.emit("viewer-joined");
+} 
+socket.on("offer", async ({ from, offer }) => {
+  const pc = createPeerConnection(from);
+  peerConnections[from] = pc;
+
+  await pc.setRemoteDescription(new RTCSessionDescription(offer));
+
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+
+  socket.emit("answer", {
+    target: from,
+    answer
+  });
+});
+
+socket.on("answer", async ({ from, answer }) => {
+  await peerConnections[from].setRemoteDescription(
+    new RTCSessionDescription(answer)
+  );
+});
+
+socket.on("ice-candidate", async ({ from, candidate }) => {
+  if (peerConnections[from]) {
+    await peerConnections[from].addIceCandidate(
+      new RTCIceCandidate(candidate)
+    );
+  }
+});
+
+socket.on("live-started", () => {
+  status.innerText = "LIVE 🔴";
+});
+
+socket.on("viewer-count", (count) => {
+  viewers.innerText = count;
+});
+
+socket.on("live-stopped", () => {
+  status.innerText = "Not Live";
+});
+
+</script>
+
 </body>
 </html>
